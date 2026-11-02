@@ -1,6 +1,6 @@
-<x-layouts::auth :title="__('Forgot password')">
+<x-layouts::auth title="Lupa password">
     <div class="flex flex-col gap-6">
-        <x-auth-header :title="__('Forgot password')" :description="__('Enter your email to receive a password reset link')" />
+        <x-auth-header title="Lupa password" description="Masukkan email akun website Anda yang terdaftar dengan domain @artabumisentraindustri.com." />
 
         <!-- Session Status -->
         <x-auth-session-status class="text-center" :status="session('status')" />
@@ -11,21 +11,25 @@
             <!-- Email Address -->
             <flux:input
                 name="email"
-                :label="__('Email address')"
+                label="Email perusahaan"
+                :value="old('email')"
                 type="email"
                 required
                 autofocus
-                placeholder="email@example.com"
+                autocomplete="email"
+                placeholder="it@artabumisentraindustri.com"
             />
 
             <flux:button variant="primary" type="submit" class="w-full" data-test="email-password-reset-link-button">
-                {{ __('Email password reset link') }}
+                Kirim Tautan Reset Password
             </flux:button>
         </form>
 
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">Buka inbox atau folder spam di Webmail setelah mengirim permintaan. Tautan ini mengubah password website, bukan password email Anda.</p>
+
         <div class="space-x-1 rtl:space-x-reverse text-center text-sm text-zinc-400">
-            <span>{{ __('Or, return to') }}</span>
-            <flux:link :href="route('login')" wire:navigate>{{ __('log in') }}</flux:link>
+            <span>Kembali ke</span>
+            <flux:link :href="route('login')" wire:navigate>halaman login</flux:link>
         </div>
     </div>
 </x-layouts::auth>

@@ -4,12 +4,17 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Http\Requests\CompanyPasswordResetLinkRequest;
+use App\Models\User;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Laravel\Fortify\Fortify;
+use Laravel\Fortify\Http\Requests\SendPasswordResetLinkRequest;
 
 class FortifyServiceProvider extends ServiceProvider
 {
@@ -18,7 +23,7 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(SendPasswordResetLinkRequest::class, CompanyPasswordResetLinkRequest::class);
     }
 
     /**
@@ -29,6 +34,23 @@ class FortifyServiceProvider extends ServiceProvider
         $this->configureActions();
         $this->configureViews();
         $this->configureRateLimiting();
+
+        ResetPassword::toMailUsing(function (User $user, string $token): MailMessage {
+            // Use the configured website origin, never the incoming Host header.
+            $url = rtrim(config('app.url'), '/').route('password.reset', [
+                'token' => $token,
+                'email' => $user->getEmailForPasswordReset(),
+            ], false);
+            $minutes = config('auth.passwords.'.config('fortify.passwords').'.expire');
+
+            return (new MailMessage)
+                ->subject('Reset Password Website Artabumi')
+                ->greeting('Halo '.$user->name.',')
+                ->line('Kami menerima permintaan reset password akun website Artabumi Anda.')
+                ->action('Buat Password Baru', $url)
+                ->line('Tautan ini berlaku selama '.$minutes.' menit dan hanya dapat digunakan sekali.')
+                ->line('Jika Anda tidak meminta reset password, abaikan email ini. Password Anda belum berubah.');
+        });
     }
 
     /**
