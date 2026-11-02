@@ -4,6 +4,7 @@ use App\Models\Article;
 use App\Models\InstagramPost;
 use App\Models\User;
 use App\Services\InstagramFeed;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -85,4 +86,40 @@ test('Instagram missing token and account mismatch do not import posts', functio
     Http::fake(['*' => Http::response(['username' => 'another_account'])]);
     expect(app(InstagramFeed::class)->sync())->toBeFalse();
     expect(InstagramPost::count())->toBe(0);
+});
+
+test('Instagram API failures explain the category without leaking response secrets', function ($httpStatus, $code, $message) {
+    config(['instagram.access_token' => 'secret-test-token', 'instagram.ca_bundle' => null]);
+    InstagramPost::create(['id' => 'saved', 'caption' => 'Saved post', 'permalink' => 'https://www.instagram.com/p/saved/', 'posted_at' => now()]);
+    Cache::forever('instagram.synced_at', '2026-10-28T01:30:00+00:00');
+    Http::fake(['*' => Http::response(['error' => ['code' => $code, 'message' => 'secret-test-token']], $httpStatus)]);
+
+    expect(app(InstagramFeed::class)->sync())->toBeFalse();
+    expect(Cache::get('instagram.status'))->toContain($message)->not->toContain('secret-test-token');
+    expect(InstagramPost::find('saved'))->not->toBeNull();
+    expect(Cache::get('instagram.synced_at'))->toBe('2026-10-28T01:30:00+00:00');
+    expect(Cache::lock('instagram.sync', 60)->get())->toBeTrue();
+})->with([
+    [400, 190, 'Token Instagram ditolak'],
+    [403, 200, 'Akses Instagram ditolak'],
+    [429, 4, 'Batas permintaan'],
+    [503, 2, 'Layanan Instagram'],
+    [400, 100, 'HTTP 400'],
+]);
+
+test('Instagram rejects a missing CA file before making network requests', function () {
+    config(['instagram.access_token' => 'secret-test-token', 'instagram.ca_bundle' => '/nonexistent/instagram-ca-test.pem']);
+    Http::fake();
+
+    expect(app(InstagramFeed::class)->sync())->toBeFalse();
+    expect(Cache::get('instagram.status'))->toContain('INSTAGRAM_CA_BUNDLE')->not->toContain('/nonexistent');
+    Http::assertNothingSent();
+});
+
+test('Instagram connection failures have a safe actionable message', function () {
+    config(['instagram.access_token' => 'secret-test-token', 'instagram.ca_bundle' => null]);
+    Http::fake(fn () => throw new ConnectionException('secret-test-token'));
+
+    expect(app(InstagramFeed::class)->sync())->toBeFalse();
+    expect(Cache::get('instagram.status'))->toContain('Tidak dapat terhubung')->not->toContain('secret-test-token');
 });

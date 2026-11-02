@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\InstagramPost;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -14,6 +16,12 @@ class InstagramFeed
     {
         if (! config('instagram.access_token')) {
             Cache::forever('instagram.status', 'Token Instagram belum dikonfigurasi.');
+
+            return false;
+        }
+        $caBundle = config('instagram.ca_bundle');
+        if ($caBundle && (! is_string($caBundle) || ! is_file($caBundle) || ! is_readable($caBundle))) {
+            Cache::forever('instagram.status', 'Konfigurasi sertifikat SSL tidak valid. Periksa INSTAGRAM_CA_BUNDLE di server hosting. Data terakhir tetap ditampilkan.');
 
             return false;
         }
@@ -62,6 +70,23 @@ class InstagramFeed
             Cache::forever('instagram.synced_at', now()->toIso8601String());
 
             return true;
+        } catch (RequestException $exception) {
+            $code = $exception->response->json('error.code');
+            $status = $exception->response->status();
+            $reason = match (true) {
+                $code === 190 || $status === 401 => 'Token Instagram ditolak atau tidak berlaku. Hubungkan ulang akun dan perbarui token di hosting.',
+                in_array($code, [10, 200], true) || $status === 403 => 'Akses Instagram ditolak. Periksa izin aplikasi dan akses akun perusahaan.',
+                in_array($code, [4, 17, 32, 613], true) || $status === 429 => 'Batas permintaan Instagram tercapai. Tunggu sebelum mencoba lagi.',
+                $status >= 500 => 'Layanan Instagram sedang bermasalah. Coba kembali nanti.',
+                default => 'Permintaan ke API Instagram gagal (HTTP '.$status.'). Periksa konfigurasi API dan akses aplikasi.',
+            };
+            Cache::forever('instagram.status', $reason.' Data terakhir tetap ditampilkan.');
+
+            return false;
+        } catch (ConnectionException) {
+            Cache::forever('instagram.status', 'Tidak dapat terhubung ke Instagram. Periksa koneksi keluar hosting, DNS, sertifikat SSL, atau timeout. Data terakhir tetap ditampilkan.');
+
+            return false;
         } catch (\Throwable) {
             // Do not log responses or exceptions: they can contain access tokens.
             Cache::forever('instagram.status', 'Sinkronisasi gagal. Periksa token, izin akun, dan koneksi. Data terakhir tetap ditampilkan.');
