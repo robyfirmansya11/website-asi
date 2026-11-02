@@ -19,6 +19,14 @@ class InstagramFeed
 
             return false;
         }
+        $loginType = config('instagram.login_type', 'instagram');
+        $accountId = (string) config('instagram.account_id', '');
+        if (! in_array($loginType, ['instagram', 'facebook'], true)
+            || ($loginType === 'facebook' && ! preg_match('/^[0-9]+$/', $accountId))) {
+            Cache::forever('instagram.status', 'Konfigurasi Instagram tidak valid. Periksa INSTAGRAM_LOGIN_TYPE dan INSTAGRAM_ACCOUNT_ID. Data terakhir tetap ditampilkan.');
+
+            return false;
+        }
         $caBundle = config('instagram.ca_bundle');
         if ($caBundle && (! is_string($caBundle) || ! is_file($caBundle) || ! is_readable($caBundle))) {
             Cache::forever('instagram.status', 'Konfigurasi sertifikat SSL tidak valid. Periksa INSTAGRAM_CA_BUNDLE di server hosting. Data terakhir tetap ditampilkan.');
@@ -30,18 +38,20 @@ class InstagramFeed
             return false;
         }
         try {
-            $base = 'https://graph.instagram.com/'.config('instagram.api_version');
+            $host = $loginType === 'facebook' ? 'https://graph.facebook.com/' : 'https://graph.instagram.com/';
+            $base = $host.config('instagram.api_version');
+            $account = $loginType === 'facebook' ? $accountId : 'me';
             $client = Http::withToken(config('instagram.access_token'))->connectTimeout(5)->timeout(15);
             if (config('instagram.ca_bundle')) {
                 $client = $client->withOptions(['verify' => config('instagram.ca_bundle')]);
             }
-            $profile = $client->get($base.'/me', ['fields' => 'id,username'])->throw()->json();
+            $profile = $client->get($base.'/'.$account, ['fields' => 'id,username'])->throw()->json();
             if (strtolower($profile['username'] ?? '') !== config('instagram.username')) {
                 Cache::forever('instagram.status', 'Token tidak terhubung dengan akun Instagram perusahaan.');
 
                 return false;
             }
-            $response = $client->get($base.'/me/media', [
+            $response = $client->get($base.'/'.$account.'/media', [
                 'fields' => 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp', 'limit' => 25,
             ])->throw()->json();
             if (! is_array($response['data'] ?? null)) {

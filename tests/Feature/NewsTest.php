@@ -15,6 +15,27 @@ function articlePayload(array $overrides = []): array
     return array_replace(['translations' => ['id' => ['title' => 'Berita perusahaan', 'summary' => 'Ringkasan berita.', 'body' => 'Isi artikel.']], 'status' => 'draft'], $overrides);
 }
 
+test('Instagram Facebook login imports media using the configured account endpoint', function () {
+    config(['instagram.login_type' => 'facebook', 'instagram.account_id' => '17841471039835117', 'instagram.api_version' => 'v26.0', 'instagram.access_token' => 'fake-token', 'instagram.ca_bundle' => null]);
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://graph.facebook.com/v26.0/17841471039835117?*' => Http::response(['id' => '17841471039835117', 'username' => 'artabumisentraindustri']),
+        'https://graph.facebook.com/v26.0/17841471039835117/media?*' => Http::response(['data' => [['id' => 'new-post', 'caption' => 'New post', 'media_type' => 'IMAGE', 'media_url' => 'https://cdn.example.com/image.jpg', 'permalink' => 'https://www.instagram.com/p/example/', 'timestamp' => '2026-10-28T02:52:58+0000']]]),
+    ]);
+
+    expect(app(InstagramFeed::class)->sync())->toBeTrue();
+    expect(InstagramPost::findOrFail('new-post')->caption)->toBe('New post');
+    Http::assertSentCount(2);
+    Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'Bearer fake-token') && str_contains($request->url(), '/17841471039835117/media'));
+});
+
+test('Instagram invalid endpoint configuration sends no token', function ($type, $id) {
+    config(['instagram.login_type' => $type, 'instagram.account_id' => $id, 'instagram.access_token' => 'fake-token']);
+    Http::fake();
+    expect(app(InstagramFeed::class)->sync())->toBeFalse();
+    Http::assertNothingSent();
+})->with([['facebook', null], ['facebook', '../me'], ['invalid', '123']]);
+
 test('article management requires verified HR access', function () {
     $this->get('/hr/articles')->assertRedirect('/login');
     $this->actingAs(User::factory()->create())->post('/hr/articles', articlePayload())->assertForbidden();
